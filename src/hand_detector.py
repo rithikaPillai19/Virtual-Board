@@ -38,13 +38,22 @@ class HandTracker:
 
         fingers = []
 
-        # Thumb: compare tip to IP joint (x-distance check)
-        if abs(lm_list[self.tip_ids[0]][1] - lm_list[self.tip_ids[0] - 2][1]) > 20:
-            fingers.append(1 if lm_list[self.tip_ids[0]][1] > lm_list[self.tip_ids[0] - 1][1] else 0)
+        # Thumb: Check distance between thumb tip (4) and index finger base (5) / MCP
+        # When thumb is extended out, the Euclidean distance is significantly larger
+        thumb_tip = np.array([lm_list[4][1], lm_list[4][2]])
+        index_mcp = np.array([lm_list[5][1], lm_list[5][2]])
+        pinky_mcp = np.array([lm_list[17][1], lm_list[17][2]])
+        
+        palm_width = np.linalg.norm(index_mcp - pinky_mcp)
+        thumb_dist = np.linalg.norm(thumb_tip - index_mcp)
+
+        # If thumb tip is stretched away from index base by more than ~40% of palm width
+        if thumb_dist > 0.45 * palm_width:
+            fingers.append(1)
         else:
             fingers.append(0)
 
-        # 4 Fingers: Check if tip Y is strictly higher (lower Y value) than PIP joint
+        # 4 Fingers: Check tip Y relative to PIP joint Y
         for i in range(1, 5):
             if lm_list[self.tip_ids[i]][2] < lm_list[self.tip_ids[i] - 2][2]:
                 fingers.append(1)
