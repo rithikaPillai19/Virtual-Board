@@ -33,19 +33,18 @@ class HandTracker:
         return lm_list
 
     def fingers_up(self, lm_list):
-        """Returns a list of 5 booleans indicating whether each finger is up."""
         if len(lm_list) == 0:
             return []
 
         fingers = []
 
-        # Thumb: compare x position (relative to handedness/knuckle)
-        if lm_list[self.tip_ids[0]][1] > lm_list[self.tip_ids[0] - 1][1]:
-            fingers.append(1)
+        # Thumb: compare tip to IP joint (x-distance check)
+        if abs(lm_list[self.tip_ids[0]][1] - lm_list[self.tip_ids[0] - 2][1]) > 20:
+            fingers.append(1 if lm_list[self.tip_ids[0]][1] > lm_list[self.tip_ids[0] - 1][1] else 0)
         else:
             fingers.append(0)
 
-        # 4 Fingers: check if tip landmark y is above pip landmark y
+        # 4 Fingers: Check if tip Y is strictly higher (lower Y value) than PIP joint
         for i in range(1, 5):
             if lm_list[self.tip_ids[i]][2] < lm_list[self.tip_ids[i] - 2][2]:
                 fingers.append(1)
