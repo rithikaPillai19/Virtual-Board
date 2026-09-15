@@ -28,9 +28,9 @@ class VirtualCanvas:
         self.prev_point = None
 
     def merge(self, frame):
-        # Convert canvas to grayscale mask and blend
+        # Create a mask of the canvas
         gray = cv2.cvtColor(self.canvas, cv2.COLOR_BGR2GRAY)
-        _, inv_mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY_INV)
+        _, inv_mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY_INV)
         frame_bg = cv2.bitwise_and(frame, frame, mask=inv_mask)
         combined = cv2.add(frame_bg, self.canvas)
         return combined
