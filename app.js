@@ -7,10 +7,14 @@ const pointerCtx = pointerCanvas.getContext("2d");
 const statusMode = document.getElementById("status-mode");
 const statusLeft = document.getElementById("status-left");
 const buttons = document.querySelectorAll(".tool-btn");
-const clearBtn = document.getElementById("clear-btn");
 
 let currentColor = "#0000ff";
 let prevPoint = null;
+
+// Persistent Locked Mode State
+let lockedMode = "HOVER"; // 'HOVER', 'DRAW', 'ERASER', 'COLOR_SELECT'
+let lastSwitchTime = 0;
+const switchCooldown = 500; // ms
 
 function resize() {
   paintCanvas.width = window.innerWidth;
@@ -36,11 +40,7 @@ buttons.forEach(btn => {
 function getFingersUp(landmarks) {
   const tipIds = [4, 8, 12, 16, 20];
   const fingers = [];
-
-  // Thumb: tip (4) higher than IP joint (3)
   fingers.push(landmarks[4].y < landmarks[3].y ? 1 : 0);
-
-  // Other 4 fingers: tip y < pip y
   for (let i = 1; i < 5; i++) {
     fingers.push(landmarks[tipIds[i]].y < landmarks[tipIds[i] - 2].y ? 1 : 0);
   }
@@ -57,7 +57,6 @@ function onResults(results) {
     for (let i = 0; i < results.multiHandLandmarks.length; i++) {
       const lms = results.multiHandLandmarks[i];
       const wristX = lms[0].x;
-      // Mirror check: screen left vs screen right
       if (wristX > 0.5) {
         leftLms = lms;
       } else {
@@ -66,30 +65,44 @@ function onResults(results) {
     }
   }
 
-  // 1. Evaluate Left Hand
-  let leftMode = "HOVER";
-  if (leftLms) {
+  const now = Date.now();
+
+  // 1. UPDATE LOCKED STATE WHEN LEFT HAND FLASHES A COMMAND
+  if (leftLms && (now - lastSwitchTime > switchCooldown)) {
     const lFingers = getFingersUp(leftLms);
     const count = lFingers.reduce((a, b) => a + b, 0);
 
-    if (count >= 4) {
-      leftMode = "ERASER";
+    if (count >= 4 && lockedMode !== "ERASER") {
+      lockedMode = "ERASER";
+      lastSwitchTime = now;
+      prevPoint = null;
     } else if (lFingers[0] === 1 && lFingers[1] === 1 && lFingers[2] === 1 && lFingers[3] === 0 && lFingers[4] === 0) {
-      leftMode = "COLOR_SELECT";
-    } else if (lFingers[0] === 1 && lFingers[1] === 0 && lFingers[2] === 0 && lFingers[3] === 0 && lFingers[4] === 0) {
-      leftMode = "DRAW";
+      if (lockedMode !== "COLOR_SELECT") {
+        lockedMode = "COLOR_SELECT";
+        lastSwitchTime = now;
+        prevPoint = null;
+      }
+    } else if (lFingers[0] === 1 && count === 1) {
+      if (lockedMode !== "DRAW") {
+        lockedMode = "DRAW";
+        lastSwitchTime = now;
+        prevPoint = null;
+      }
+    } else if (count === 0 && lockedMode !== "HOVER") {
+      lockedMode = "HOVER";
+      lastSwitchTime = now;
+      prevPoint = null;
     }
-    statusLeft.textContent = `LEFT COMMAND: ${leftMode}`;
-  } else {
-    statusLeft.textContent = "LEFT COMMAND: NONE (HOVER)";
   }
 
-  // 2. Execute Right Hand
+  statusLeft.textContent = `LOCKED MODE: ${lockedMode} (${leftLms ? "LEFT IN VIEW" : "HANDS-FREE"})`;
+
+  // 2. RIGHT HAND EXECUTES CURRENT LOCKED MODE
   if (rightLms) {
     const rx = rightLms[8].x * pointerCanvas.width;
     const ry = rightLms[8].y * pointerCanvas.height;
 
-    if (leftMode === "ERASER") {
+    if (lockedMode === "ERASER") {
       paintCtx.save();
       paintCtx.globalCompositeOperation = "destination-out";
       paintCtx.beginPath();
@@ -105,7 +118,7 @@ function onResults(results) {
       statusMode.textContent = "MODE: ERASING";
       prevPoint = null;
 
-    } else if (leftMode === "COLOR_SELECT") {
+    } else if (lockedMode === "COLOR_SELECT") {
       pointerCtx.fillStyle = "#ffffff";
       pointerCtx.beginPath();
       pointerCtx.arc(rx, ry, 10, 0, 2 * Math.PI);
@@ -113,14 +126,13 @@ function onResults(results) {
       statusMode.textContent = "MODE: COLOR SELECT (CLICK TOP BAR)";
       prevPoint = null;
 
-      // Tap detection for toolbar
-      const screenX = pointerCanvas.width - rx; // mirror adjustment
+      const screenX = pointerCanvas.width - rx;
       const elem = document.elementFromPoint(screenX, ry);
       if (elem && elem.classList.contains("tool-btn")) {
         elem.click();
       }
 
-    } else if (leftMode === "DRAW") {
+    } else if (lockedMode === "DRAW") {
       if (prevPoint) {
         paintCtx.strokeStyle = currentColor;
         paintCtx.lineWidth = 6;
@@ -144,7 +156,7 @@ function onResults(results) {
       pointerCtx.beginPath();
       pointerCtx.arc(rx, ry, 6, 0, 2 * Math.PI);
       pointerCtx.stroke();
-      statusMode.textContent = "MODE: HOVER / AIM";
+      statusMode.textContent = "MODE: HOVER / PAUSED";
       prevPoint = null;
     }
   } else {
