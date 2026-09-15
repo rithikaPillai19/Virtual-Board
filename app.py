@@ -8,7 +8,7 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-    detector = HandTracker(detection_con=0.8, track_con=0.8)
+    detector = HandTracker(max_hands=2, detection_con=0.8, track_con=0.8)
     ui = BoardUI()
     canvas = None
 
@@ -24,57 +24,72 @@ def main():
             canvas = VirtualCanvas(frame.shape)
 
         frame = detector.find_hands(frame, draw=False)
-        lm_list = detector.get_landmarks(frame)
+        hands = detector.get_all_hands(frame)
 
-        if len(lm_list) != 0:
-            # Landmark 8: Index finger tip, Landmark 12: Middle finger tip
-            x1, y1 = lm_list[8][1], lm_list[8][2]
-            x2, y2 = lm_list[12][1], lm_list[12][2]
-            # Landmark 9: Palm center (MCP joint) for eraser centroid
-            px, py = lm_list[9][1], lm_list[9][2]
+        left_hand_lms = None
+        right_hand_lms = None
 
-            fingers = detector.fingers_up(lm_list)
+        # Sort detected hands based on screen position (after mirror flip)
+        # Left side of screen = your left hand; Right side = your right hand
+        for hand in hands:
+            wrist_x = hand["lms"][0][1]
+            if wrist_x < frame.shape[1] // 2:
+                left_hand_lms = hand["lms"]
+            else:
+                right_hand_lms = hand["lms"]
 
-            # Debug HUD: show detected finger states [Thumb, Index, Middle, Ring, Pinky]
-            cv2.putText(frame, f"Fingers: {fingers}", (20, 150),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # Evaluate Clutch Switch (Left Hand Thumb UP)
+        left_clutch_engaged = False
+        if left_hand_lms:
+            left_fingers = detector.fingers_up(left_hand_lms, "Left")
+            # Thumb tip is higher than thumb knuckle
+            if len(left_fingers) > 0 and left_fingers[0] == 1:
+                left_clutch_engaged = True
+                cv2.putText(frame, "TRIGGER: ACTIVE (PEN DOWN)", (20, 140),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            else:
+                cv2.putText(frame, "TRIGGER: STANDBY", (20, 140),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
-            # MODE 1: WHOLE HAND OPEN (4 or 5 fingers extended) -> ERASER
-            if sum(fingers) >= 4:
-                canvas.erase((px, py))
-                cv2.circle(frame, (px, py), canvas.eraser_radius, (0, 0, 255), 2)
-                cv2.putText(frame, "ERASER MODE", (20, 110),
+        # Evaluate Drawing / Erasing / Selection (Right Hand)
+        if right_hand_lms:
+            rx, ry = right_hand_lms[8][1], right_hand_lms[8][2]   # Right Index Tip
+            r_palm_x, r_palm_y = right_hand_lms[9][1], right_hand_lms[9][2]
+            right_fingers = detector.fingers_up(right_hand_lms, "Right")
+
+            # MODE 1: WHOLE RIGHT HAND OPEN -> ERASER
+            if sum(right_fingers) >= 4:
+                canvas.erase((r_palm_x, r_palm_y))
+                cv2.circle(frame, (r_palm_x, r_palm_y), canvas.eraser_radius, (0, 0, 255), 2)
+                cv2.putText(frame, "MODE: ERASER", (20, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-            # MODE 2: SELECTION / HOVER (Index + Middle UP) -> PALETTE SELECTION
-            elif len(fingers) >= 3 and fingers[1] == 1 and fingers[2] == 1:
+            # MODE 2: RIGHT INDEX + MIDDLE UP -> COLOR SELECTION (TOP BAR)
+            elif len(right_fingers) >= 3 and right_fingers[1] == 1 and right_fingers[2] == 1:
                 canvas.reset_point()
-                cv2.circle(frame, (x1, y1), 10, (200, 200, 200), cv2.FILLED)
-
-                # Tap color buttons in top header
-                if y1 < 70:
-                    action = ui.check_interaction((x1, y1))
+                cv2.circle(frame, (rx, ry), 10, (200, 200, 200), cv2.FILLED)
+                if ry < 70:
+                    action = ui.check_interaction((rx, ry))
                     if action == "CLEAR":
                         canvas.clear()
                     elif action is not None:
                         canvas.current_color = action
-
-                cv2.putText(frame, "SELECTION / HOVER", (20, 110),
+                cv2.putText(frame, "MODE: COLOR SELECT", (20, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
 
-            # MODE 3: DRAW MODE (Index UP + Thumb OUT + Middle/Ring/Pinky DOWN) -> PEN DOWN
-            elif len(fingers) == 5 and fingers[0] == 1 and fingers[1] == 1 and fingers[2] == 0:
-                canvas.draw_stroke((x1, y1))
-                cv2.circle(frame, (x1, y1), 8, canvas.current_color, cv2.FILLED)
-                cv2.putText(frame, "DRAW MODE (PEN DOWN)", (20, 110),
+            # MODE 3: RIGHT INDEX UP + LEFT CLUTCH ENGAGED -> DRAW
+            elif len(right_fingers) >= 2 and right_fingers[1] == 1 and left_clutch_engaged:
+                canvas.draw_stroke((rx, ry))
+                cv2.circle(frame, (rx, ry), 8, canvas.current_color, cv2.FILLED)
+                cv2.putText(frame, "MODE: DRAWING", (20, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, canvas.current_color, 2)
 
-            # MODE 4: AIM / TARGETING (Index UP, but Thumb TUCKED IN) -> PEN LIFTED
-            elif len(fingers) >= 3 and fingers[0] == 0 and fingers[1] == 1 and fingers[2] == 0:
+            # MODE 4: RIGHT INDEX UP WITHOUT CLUTCH -> FREE HOVER / AIM
+            elif len(right_fingers) >= 2 and right_fingers[1] == 1:
                 canvas.reset_point()
-                cv2.circle(frame, (x1, y1), 6, (0, 255, 255), 2)
-                cv2.putText(frame, "PEN LIFTED (STICK THUMB OUT TO DRAW)", (20, 110),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.circle(frame, (rx, ry), 6, (0, 255, 255), 2)
+                cv2.putText(frame, "MODE: AIMING (HOLD LEFT THUMB UP TO INK)", (20, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
             else:
                 canvas.reset_point()

@@ -2,9 +2,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-
 class HandTracker:
-    def __init__(self, max_hands=1, detection_con=0.75, track_con=0.7):
+    def __init__(self, max_hands=2, detection_con=0.75, track_con=0.7):
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
@@ -15,7 +14,7 @@ class HandTracker:
         self.mp_draw = mp.solutions.drawing_utils
         self.tip_ids = [4, 8, 12, 16, 20]  # Thumb, Index, Middle, Ring, Pinky
 
-    def find_hands(self, frame, draw=True):
+    def find_hands(self, frame, draw=False):
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self.results = self.hands.process(img_rgb)
         
@@ -24,37 +23,35 @@ class HandTracker:
                 self.mp_draw.draw_landmarks(frame, hand_lms, self.mp_hands.HAND_CONNECTIONS)
         return frame
 
-    def get_landmarks(self, frame):
-        lm_list = []
-        if self.results and self.results.multi_hand_landmarks:
-            my_hand = self.results.multi_hand_landmarks[0]
+    def get_all_hands(self, frame):
+        """Returns a list of dicts: [{'label': 'Left'/'Right', 'lms': [(id, x, y), ...]}, ...]"""
+        all_hands = []
+        if self.results and self.results.multi_hand_landmarks and self.results.multi_handedness:
             h, w, _ = frame.shape
-            for lm_id, lm in enumerate(my_hand.landmark):
-                cx, cy = int(lm.x * w), int(lm.y * h)
-                lm_list.append((lm_id, cx, cy))
-        return lm_list
+            for handedness, hand_landmarks in zip(self.results.multi_handedness, self.results.multi_hand_landmarks):
+                # MediaPipe handedness is inverted relative to mirrored webcam
+                label = handedness.classification[0].label  # 'Left' or 'Right'
+                lm_list = []
+                for lm_id, lm in enumerate(hand_landmarks.landmark):
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    lm_list.append((lm_id, cx, cy))
+                all_hands.append({"label": label, "lms": lm_list})
+        return all_hands
 
-    def fingers_up(self, lm_list):
+    def fingers_up(self, lm_list, hand_label="Right"):
         if len(lm_list) < 21:
             return []
 
         fingers = []
 
-        # Thumb: Calculate Euclidean distance relative to palm width
-        thumb_tip = np.array([lm_list[4][1], lm_list[4][2]], dtype=np.float32)
-        index_mcp = np.array([lm_list[5][1], lm_list[5][2]], dtype=np.float32)
-        pinky_mcp = np.array([lm_list[17][1], lm_list[17][2]], dtype=np.float32)
-        
-        palm_width = np.linalg.norm(index_mcp - pinky_mcp)
-        thumb_dist = np.linalg.norm(thumb_tip - index_mcp)
-
-        # Safety check for palm scale
-        if palm_width > 0 and (thumb_dist / palm_width) > 0.45:
+        # Thumb up / extended detection
+        # Checks if thumb tip (4) is higher (smaller Y) than its IP joint (3)
+        if lm_list[4][2] < lm_list[3][2]:
             fingers.append(1)
         else:
             fingers.append(0)
 
-        # Other 4 Fingers: Check if tip Y is strictly higher (smaller Y value) than PIP joint Y
+        # Other 4 fingers: check if tip Y is strictly higher than PIP joint Y
         for i in range(1, 5):
             if lm_list[self.tip_ids[i]][2] < lm_list[self.tip_ids[i] - 2][2]:
                 fingers.append(1)
