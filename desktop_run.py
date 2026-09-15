@@ -51,32 +51,31 @@ def main():
             l_fingers = detector.fingers_up(left_hand_lms, "Left")
             l_count = sum(l_fingers)
 
-            # 1. ALL 5 FINGERS OPEN -> LOCK ERASER
+            # 1. ALL 5 FINGERS (or 4+) -> LOCK ERASER
             if l_count >= 4 and locked_mode != "ERASER":
                 locked_mode = "ERASER"
                 last_switch_time = current_time
                 canvas.reset_point()
 
-            # 2. THUMB + INDEX + MIDDLE UP -> LOCK COLOR SELECT
-            elif l_fingers[0] == 1 and l_fingers[1] == 1 and l_fingers[2] == 1 and l_fingers[3] == 0 and l_fingers[4] == 0:
+            # 2. EXACTLY 3 FINGERS -> STOP DRAWING / LOCK HOVER
+            elif l_count == 3 and locked_mode != "HOVER":
+                locked_mode = "HOVER"
+                last_switch_time = current_time
+                canvas.reset_point()
+
+            # 3. EXACTLY 2 FINGERS (Index + Middle UP) -> LOCK COLOR SELECT
+            elif l_fingers[1] == 1 and l_fingers[2] == 1 and l_fingers[3] == 0 and l_fingers[4] == 0:
                 if locked_mode != "COLOR_SELECT":
                     locked_mode = "COLOR_SELECT"
                     last_switch_time = current_time
                     canvas.reset_point()
 
-            # 3. THUMB ONLY UP -> LOCK DRAW
+            # 4. THUMB ONLY UP -> LOCK DRAW (START DRAWING)
             elif l_fingers[0] == 1 and sum(l_fingers[1:]) == 0:
                 if locked_mode != "DRAW":
                     locked_mode = "DRAW"
                     last_switch_time = current_time
                     canvas.reset_point()
-
-            # 4. CLOSED FIST (0 FINGERS) -> LOCK HOVER / PAUSE
-            elif l_count == 0 and locked_mode != "HOVER":
-                locked_mode = "HOVER"
-                last_switch_time = current_time
-                canvas.reset_point()
-
         # ----------------------------------------------------
         # 2. EXECUTE RIGHT HAND POINTER IN CURRENT LOCKED STATE
         # ----------------------------------------------------

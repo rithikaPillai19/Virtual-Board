@@ -68,30 +68,38 @@ function onResults(results) {
   const now = Date.now();
 
   // 1. UPDATE LOCKED STATE WHEN LEFT HAND FLASHES A COMMAND
+  // 1. UPDATE LOCKED STATE WHEN LEFT HAND FLASHES A COMMAND
   if (leftLms && (now - lastSwitchTime > switchCooldown)) {
     const lFingers = getFingersUp(leftLms);
     const count = lFingers.reduce((a, b) => a + b, 0);
 
+    // 1. ALL 5 FINGERS (or 4+) -> LOCK ERASER
     if (count >= 4 && lockedMode !== "ERASER") {
       lockedMode = "ERASER";
       lastSwitchTime = now;
       prevPoint = null;
-    } else if (lFingers[0] === 1 && lFingers[1] === 1 && lFingers[2] === 1 && lFingers[3] === 0 && lFingers[4] === 0) {
+    } 
+    // 2. EXACTLY 3 FINGERS -> STOP DRAWING / LOCK HOVER
+    else if (count === 3 && lockedMode !== "HOVER") {
+      lockedMode = "HOVER";
+      lastSwitchTime = now;
+      prevPoint = null;
+    }
+    // 3. EXACTLY 2 FINGERS (Index + Middle UP) -> LOCK COLOR SELECT
+    else if (lFingers[1] === 1 && lFingers[2] === 1 && lFingers[3] === 0 && lFingers[4] === 0) {
       if (lockedMode !== "COLOR_SELECT") {
         lockedMode = "COLOR_SELECT";
         lastSwitchTime = now;
         prevPoint = null;
       }
-    } else if (lFingers[0] === 1 && count === 1) {
+    } 
+    // 4. THUMB ONLY UP -> LOCK DRAW
+    else if (lFingers[0] === 1 && count === 1) {
       if (lockedMode !== "DRAW") {
         lockedMode = "DRAW";
         lastSwitchTime = now;
         prevPoint = null;
       }
-    } else if (count === 0 && lockedMode !== "HOVER") {
-      lockedMode = "HOVER";
-      lastSwitchTime = now;
-      prevPoint = null;
     }
   }
 
