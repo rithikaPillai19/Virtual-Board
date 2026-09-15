@@ -34,37 +34,35 @@ def main():
             px, py = lm_list[9][1], lm_list[9][2]
 
             fingers = detector.fingers_up(lm_list)
+            cv2.putText(frame, f"Fingers: {fingers}", (20, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            # MODE 1: WHOLE HAND OPEN (4 or 5 fingers up) -> ERASER
+            # MODE 1: Whole hand open (Eraser)
             if sum(fingers) >= 4:
                 canvas.erase((px, py))
                 cv2.circle(frame, (px, py), canvas.eraser_radius, (0, 0, 255), 2)
                 cv2.putText(frame, "ERASER MODE", (20, 110),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-            # MODE 2: TWO FINGERS UP (Index + Middle) -> HOVER / SELECT
-            elif fingers[1] == 1 and fingers[2] == 1:
+            # MODE 2: Selection / Hover (Index + Middle UP)
+            elif len(fingers) >= 3 and fingers[1] == 1 and fingers[2] == 1:
                 canvas.reset_point()
                 cv2.circle(frame, (x1, y1), 10, (200, 200, 200), cv2.FILLED)
-
-                # Check if interacting with the top palette
                 if y1 < 70:
                     action = ui.check_interaction((x1, y1))
                     if action == "CLEAR":
                         canvas.clear()
                     elif action is not None:
                         canvas.current_color = action
-
-                cv2.putText(frame, "HOVER / SELECT MODE", (20, 110),
+                cv2.putText(frame, "SELECTION MODE", (20, 110),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
 
-            # MODE 3: ONE FINGER UP (Index only) -> DRAW
-            elif fingers[1] == 1 and fingers[2] == 0:
+            # MODE 3: Drawing (Index UP, Middle DOWN)
+            elif len(fingers) >= 3 and fingers[1] == 1 and fingers[2] == 0:
                 canvas.draw_stroke((x1, y1))
-                cv2.circle(frame, (x1, y1), 8, canvas.current_color, cv2.FILLED)
+                cv2.circle(frame, (x1, y1), 10, canvas.current_color, cv2.FILLED)
                 cv2.putText(frame, "DRAW MODE", (20, 110),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, canvas.current_color, 2)
-
             else:
                 canvas.reset_point()
         else:
