@@ -1,5 +1,7 @@
 import cv2
 import mediapipe as mp
+import numpy as np
+
 
 class HandTracker:
     def __init__(self, max_hands=1, detection_con=0.75, track_con=0.7):
@@ -33,27 +35,26 @@ class HandTracker:
         return lm_list
 
     def fingers_up(self, lm_list):
-        if len(lm_list) == 0:
+        if len(lm_list) < 21:
             return []
 
         fingers = []
 
-        # Thumb: Check distance between thumb tip (4) and index finger base (5) / MCP
-        # When thumb is extended out, the Euclidean distance is significantly larger
-        thumb_tip = np.array([lm_list[4][1], lm_list[4][2]])
-        index_mcp = np.array([lm_list[5][1], lm_list[5][2]])
-        pinky_mcp = np.array([lm_list[17][1], lm_list[17][2]])
+        # Thumb: Calculate Euclidean distance relative to palm width
+        thumb_tip = np.array([lm_list[4][1], lm_list[4][2]], dtype=np.float32)
+        index_mcp = np.array([lm_list[5][1], lm_list[5][2]], dtype=np.float32)
+        pinky_mcp = np.array([lm_list[17][1], lm_list[17][2]], dtype=np.float32)
         
         palm_width = np.linalg.norm(index_mcp - pinky_mcp)
         thumb_dist = np.linalg.norm(thumb_tip - index_mcp)
 
-        # If thumb tip is stretched away from index base by more than ~40% of palm width
-        if thumb_dist > 0.45 * palm_width:
+        # Safety check for palm scale
+        if palm_width > 0 and (thumb_dist / palm_width) > 0.45:
             fingers.append(1)
         else:
             fingers.append(0)
 
-        # 4 Fingers: Check tip Y relative to PIP joint Y
+        # Other 4 Fingers: Check if tip Y is strictly higher (smaller Y value) than PIP joint Y
         for i in range(1, 5):
             if lm_list[self.tip_ids[i]][2] < lm_list[self.tip_ids[i] - 2][2]:
                 fingers.append(1)
