@@ -1,0 +1,6 @@
+requirements.txt
+desktop_run.py
+src/
+tests/
+venv/
+*.py
