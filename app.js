@@ -14,7 +14,7 @@ let prevPoint = null;
 // Persistent Locked Mode State
 let lockedMode = "HOVER"; // 'HOVER', 'DRAW', 'ERASER', 'COLOR_SELECT'
 let lastSwitchTime = 0;
-const switchCooldown = 500; // ms
+const switchCooldown = 400; // ms debounce
 
 function resize() {
   paintCanvas.width = window.innerWidth;
@@ -40,7 +40,11 @@ buttons.forEach(btn => {
 function getFingersUp(landmarks) {
   const tipIds = [4, 8, 12, 16, 20];
   const fingers = [];
+
+  // Thumb: Tip Y strictly higher than IP joint Y
   fingers.push(landmarks[4].y < landmarks[3].y ? 1 : 0);
+
+  // 4 fingers: Tip Y higher than PIP joint Y (two landmarks behind tip)
   for (let i = 1; i < 5; i++) {
     fingers.push(landmarks[tipIds[i]].y < landmarks[tipIds[i] - 2].y ? 1 : 0);
   }
@@ -57,6 +61,7 @@ function onResults(results) {
     for (let i = 0; i < results.multiHandLandmarks.length; i++) {
       const lms = results.multiHandLandmarks[i];
       const wristX = lms[0].x;
+      // Mirror check: on mirrored display, x > 0.5 is the user's left hand
       if (wristX > 0.5) {
         leftLms = lms;
       } else {
@@ -67,45 +72,52 @@ function onResults(results) {
 
   const now = Date.now();
 
-  // 1. UPDATE LOCKED STATE WHEN LEFT HAND FLASHES A COMMAND
-  // 1. UPDATE LOCKED STATE WHEN LEFT HAND FLASHES A COMMAND
-  if (leftLms && (now - lastSwitchTime > switchCooldown)) {
+  // 1. UPDATE LOCKED STATE VIA LEFT HAND COMMANDS
+  if (leftLms) {
     const lFingers = getFingersUp(leftLms);
     const count = lFingers.reduce((a, b) => a + b, 0);
 
-    // 1. ALL 5 FINGERS (or 4+) -> LOCK ERASER
-    if (count >= 4 && lockedMode !== "ERASER") {
-      lockedMode = "ERASER";
-      lastSwitchTime = now;
-      prevPoint = null;
-    } 
-    // 2. EXACTLY 3 FINGERS -> STOP DRAWING / LOCK HOVER
-    else if (count === 3 && lockedMode !== "HOVER") {
-      lockedMode = "HOVER";
-      lastSwitchTime = now;
-      prevPoint = null;
-    }
-    // 3. EXACTLY 2 FINGERS (Index + Middle UP) -> LOCK COLOR SELECT
-    else if (lFingers[1] === 1 && lFingers[2] === 1 && lFingers[3] === 0 && lFingers[4] === 0) {
-      if (lockedMode !== "COLOR_SELECT") {
-        lockedMode = "COLOR_SELECT";
+    // Live Telemetry: Shows exact finger detection array [Thumb, Index, Middle, Ring, Pinky]
+    statusLeft.textContent = `LOCKED: ${lockedMode} | DETECTED: [${lFingers.join(",")}]`;
+
+    if (now - lastSwitchTime > switchCooldown) {
+      // 1. STOP DRAWING / HOVER (PRIORITY): 3 Fingers Up (Index + Middle + Ring, Pinky DOWN)
+      // Works regardless of thumb position
+      if (lFingers[1] === 1 && lFingers[2] === 1 && lFingers[3] === 1 && lFingers[4] === 0) {
+        if (lockedMode !== "HOVER") {
+          lockedMode = "HOVER";
+          lastSwitchTime = now;
+          prevPoint = null;
+        }
+      }
+      // 2. ERASER: Full open hand (All 5 fingers extended)
+      else if (count === 5 && lockedMode !== "ERASER") {
+        lockedMode = "ERASER";
         lastSwitchTime = now;
         prevPoint = null;
       }
-    } 
-    // 4. THUMB ONLY UP -> LOCK DRAW
-    else if (lFingers[0] === 1 && count === 1) {
-      if (lockedMode !== "DRAW") {
-        lockedMode = "DRAW";
-        lastSwitchTime = now;
-        prevPoint = null;
+      // 3. COLOR SELECT: 2 Fingers Up (Index + Middle UP, Ring & Pinky DOWN)
+      else if (lFingers[1] === 1 && lFingers[2] === 1 && lFingers[3] === 0 && lFingers[4] === 0) {
+        if (lockedMode !== "COLOR_SELECT") {
+          lockedMode = "COLOR_SELECT";
+          lastSwitchTime = now;
+          prevPoint = null;
+        }
+      }
+      // 4. DRAW: Thumb ONLY extended UP (Index, Middle, Ring, Pinky DOWN)
+      else if (lFingers[0] === 1 && lFingers[1] === 0 && lFingers[2] === 0 && lFingers[3] === 0 && lFingers[4] === 0) {
+        if (lockedMode !== "DRAW") {
+          lockedMode = "DRAW";
+          lastSwitchTime = now;
+          prevPoint = null;
+        }
       }
     }
+  } else {
+    statusLeft.textContent = `LOCKED: ${lockedMode} (HANDS-FREE)`;
   }
 
-  statusLeft.textContent = `LOCKED MODE: ${lockedMode} (${leftLms ? "LEFT IN VIEW" : "HANDS-FREE"})`;
-
-  // 2. RIGHT HAND EXECUTES CURRENT LOCKED MODE
+  // 2. EXECUTE RIGHT HAND POINTER ACCORDING TO LOCKED MODE
   if (rightLms) {
     const rx = rightLms[8].x * pointerCanvas.width;
     const ry = rightLms[8].y * pointerCanvas.height;
