@@ -1,4 +1,5 @@
 import cv2
+import time
 from src.hand_detector import HandTracker
 from src.canvas import VirtualCanvas
 from src.ui import BoardUI
@@ -12,25 +13,30 @@ def main():
     ui = BoardUI()
     canvas = None
 
-    # Supported palette cycler
-    palette_colors = [
+    # Available drawing colors to cycle through
+    palette = [
         ("BLUE", (255, 0, 0)),
         ("GREEN", (0, 255, 0)),
         ("RED", (0, 0, 255)),
         ("YELLOW", (0, 255, 255))
     ]
-    color_idx = 0
+    color_index = 0
+
+    # Debounce / cooldown control for color switching
+    last_switch_time = 0.0
+    switch_cooldown = 0.6  # Minimum seconds between switches
+    was_in_switch_pose = False
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Mirror video frame for intuitive interaction
         frame = cv2.flip(frame, 1)
 
         if canvas is None:
             canvas = VirtualCanvas(frame.shape)
+            canvas.current_color = palette[color_index][1]
 
         frame = detector.find_hands(frame, draw=False)
         hands = detector.get_all_hands(frame)
@@ -38,7 +44,7 @@ def main():
         left_hand_lms = None
         right_hand_lms = None
 
-        # Sort hands spatially: Left half of camera view = Left Hand; Right half = Right Hand
+        # Sort hands spatially: Left half of screen = Left Hand; Right half = Right Hand
         for hand in hands:
             wrist_x = hand["lms"][0][1]
             if wrist_x < frame.shape[1] // 2:
@@ -49,81 +55,81 @@ def main():
         # ----------------------------------------------------
         # 1. EVALUATE LEFT HAND STATE (COMMAND DECK)
         # ----------------------------------------------------
-        left_mode = "HOVER"  # Default when left hand is at rest / closed
+        left_mode = "HOVER"
 
         if left_hand_lms:
             l_fingers = detector.fingers_up(left_hand_lms, "Left")
-            l_count = sum(l_fingers)
+            current_time = time.time()
 
-            # COMMAND: ALL 5 FINGERS UP -> ERASER
-            if l_count == 5:
+            # COMMAND 1: ALL 4 OR 5 FINGERS UP -> ERASER
+            if sum(l_fingers) >= 4:
                 left_mode = "ERASER"
+                was_in_switch_pose = False
 
-            # COMMAND: 2 FINGERS UP (Index + Middle) -> COLOR SELECT / PALETTE
-            elif l_count == 2 and l_fingers[1] == 1 and l_fingers[2] == 1:
+            # COMMAND 2: INDEX + MIDDLE UP, RING + PINKY DOWN -> COLOR SWITCH
+            # (Loosened thumb check: thumb can be tucked or relaxed)
+            elif l_fingers[1] == 1 and l_fingers[2] == 1 and l_fingers[3] == 0 and l_fingers[4] == 0:
                 left_mode = "COLOR_SWITCH"
+                
+                # Single-shot trigger with cooldown
+                if not was_in_switch_pose and (current_time - last_switch_time > switch_cooldown):
+                    color_index = (color_index + 1) % len(palette)
+                    canvas.current_color = palette[color_index][1]
+                    last_switch_time = current_time
+                    was_in_switch_pose = True
 
-            # COMMAND: THUMB ONLY UP -> DRAW (PEN DOWN)
-            elif l_fingers[0] == 1 and l_fingers[1] == 0 and l_fingers[2] == 0 and l_fingers[3] == 0 and l_fingers[4] == 0:
+            # COMMAND 3: THUMB UP, ALL 4 FINGERS DOWN -> DRAW
+            elif l_fingers[0] == 1 and sum(l_fingers[1:]) == 0:
                 left_mode = "DRAW"
+                was_in_switch_pose = False
 
-            # HUD Display for Left Hand Trigger
-            cv2.putText(frame, f"LEFT HAND TRIGGER: {left_mode}", (20, 140),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            else:
+                was_in_switch_pose = False
+
+            # Status HUD
+            color_name = palette[color_index][0]
+            cv2.putText(frame, f"LEFT: {left_mode} | COLOR: {color_name}", (20, 140),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
         else:
+            was_in_switch_pose = False
             cv2.putText(frame, "LEFT HAND: NOT DETECTED (HOVER)", (20, 140),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 2)
 
         # ----------------------------------------------------
-        # 2. EXECUTE RIGHT HAND POINTER VIA LEFT HAND COMMAND
+        # 2. EXECUTE RIGHT HAND POINTER
         # ----------------------------------------------------
         if right_hand_lms:
-            # Right Index Finger Tip coordinates (Landmark 8)
             rx, ry = right_hand_lms[8][1], right_hand_lms[8][2]
 
-            # BRANCH 1: ERASER MODE (Left hand has all 5 fingers open)
             if left_mode == "ERASER":
                 canvas.erase((rx, ry))
                 cv2.circle(frame, (rx, ry), canvas.eraser_radius, (0, 0, 255), 2)
-                cv2.putText(frame, "STATUS: ERASING", (20, 100),
+                cv2.putText(frame, "MODE: ERASING", (20, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-            # BRANCH 2: COLOR SWITCH MODE (Left hand shows 2 fingers)
             elif left_mode == "COLOR_SWITCH":
                 canvas.reset_point()
-                cv2.circle(frame, (rx, ry), 12, (255, 255, 255), cv2.FILLED)
-                cv2.circle(frame, (rx, ry), 14, (0, 0, 0), 2)
+                # Pulse visual confirmation around pointer
+                cv2.circle(frame, (rx, ry), 12, canvas.current_color, cv2.FILLED)
+                cv2.circle(frame, (rx, ry), 15, (255, 255, 255), 2)
+                cv2.putText(frame, f"SWITCHED TO {palette[color_index][0]}", (20, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, canvas.current_color, 2)
 
-                # Tap any button on top bar to switch directly
-                if ry < 70:
-                    action = ui.check_interaction((rx, ry))
-                    if action == "CLEAR":
-                        canvas.clear()
-                    elif action is not None:
-                        canvas.current_color = action
-
-                cv2.putText(frame, "STATUS: COLOR SWITCH (TAP TOP BAR)", (20, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
-
-            # BRANCH 3: DRAW MODE (Left hand thumb is UP)
             elif left_mode == "DRAW":
                 canvas.draw_stroke((rx, ry))
                 cv2.circle(frame, (rx, ry), 8, canvas.current_color, cv2.FILLED)
-                cv2.putText(frame, "STATUS: DRAWING", (20, 100),
+                cv2.putText(frame, "MODE: DRAWING", (20, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, canvas.current_color, 2)
 
-            # BRANCH 4: FREE HOVER (Left hand closed, resting, or not active)
             else:
                 canvas.reset_point()
                 cv2.circle(frame, (rx, ry), 6, (0, 255, 255), 2)
-                cv2.putText(frame, "STATUS: AIMING / HOVER (IDLE)", (20, 100),
+                cv2.putText(frame, "MODE: HOVER", (20, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
-
         else:
             if canvas:
                 canvas.reset_point()
 
-        # Merge drawing canvas and render UI palette
         output = canvas.merge(frame)
         ui.draw_palette(output)
 
