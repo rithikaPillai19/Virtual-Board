@@ -1,0 +1,55 @@
+import cv2
+import mediapipe as mp
+
+class HandTracker:
+    def __init__(self, max_hands=1, detection_con=0.75, track_con=0.7):
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=max_hands,
+            min_detection_confidence=detection_con,
+            min_tracking_confidence=track_con
+        )
+        self.mp_draw = mp.solutions.drawing_utils
+        self.tip_ids = [4, 8, 12, 16, 20]  # Thumb, Index, Middle, Ring, Pinky
+
+    def find_hands(self, frame, draw=True):
+        img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.results = self.hands.process(img_rgb)
+        
+        if self.results.multi_hand_landmarks and draw:
+            for hand_lms in self.results.multi_hand_landmarks:
+                self.mp_draw.draw_landmarks(frame, hand_lms, self.mp_hands.HAND_CONNECTIONS)
+        return frame
+
+    def get_landmarks(self, frame):
+        lm_list = []
+        if self.results and self.results.multi_hand_landmarks:
+            my_hand = self.results.multi_hand_landmarks[0]
+            h, w, _ = frame.shape
+            for lm_id, lm in enumerate(my_hand.landmark):
+                cx, cy = int(lm.x * w), int(lm.y * h)
+                lm_list.append((lm_id, cx, cy))
+        return lm_list
+
+    def fingers_up(self, lm_list):
+        """Returns a list of 5 booleans indicating whether each finger is up."""
+        if len(lm_list) == 0:
+            return []
+
+        fingers = []
+
+        # Thumb: compare x position (relative to handedness/knuckle)
+        if lm_list[self.tip_ids[0]][1] > lm_list[self.tip_ids[0] - 1][1]:
+            fingers.append(1)
+        else:
+            fingers.append(0)
+
+        # 4 Fingers: check if tip landmark y is above pip landmark y
+        for i in range(1, 5):
+            if lm_list[self.tip_ids[i]][2] < lm_list[self.tip_ids[i] - 2][2]:
+                fingers.append(1)
+            else:
+                fingers.append(0)
+
+        return fingers
