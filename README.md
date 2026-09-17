@@ -4,7 +4,7 @@
 
 ## 1. Project Overview
 
-Virtual Screen Board is an interactive computer vision application that transforms an ordinary webcam into a touchless digital whiteboard. Traditional single-hand vision canvases suffer from the "clutch and tailing" dilemma—accidental strokes created while moving between points or pinching fingers.
+Virtual Screen Board is an interactive computer vision application which can convert an ordinary webcam into a touch-free screen board. The conventional one-handed vision canvas suffers from the "clutch and tailing" problem wherein unintended strokes are created while moving from one point to another and while pinching the fingers.
 
 This system resolves that problem using a **Decoupled Asymmetric Dual-Hand Architecture**:
 
@@ -183,15 +183,7 @@ pip install -r requirements.txt && python desktop_run.py
 
 ### Option B: Running the Web Application (Browser)
 
-* **Option 1 (Instant Live Cloud Demo):** Open [https://virtual-board.vercel.app](https://virtual-board.vercel.app) in any modern browser.
-* **Option 2 (Local Server):** Launch a local static server from the project root:
-```bash
-python -m http.server 8000
-
-```
-
-
-Open `http://localhost:8000` in your browser and allow webcam permissions.
+* **Instant Live Cloud Demo:** Open [https://virtual-board.vercel.app](https://virtual-board.vercel.app) in any modern browser.
 
 ---
 
