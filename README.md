@@ -60,6 +60,7 @@ Virtual-Board/
 ├── vercel.json              # Vercel deployment routing configuration
 ├── requirements.txt         # Pinned Python package dependencies
 ├── desktop_run.py           # Desktop orchestrator (OpenCV & FSM loop)
+├── test.py                  # Standalone test runner
 ├── index.html               # Web interface markup & canvas layers
 ├── style.css                # Layout styling, camera mirroring, and HUD
 ├── app.js                   # Client-side web camera loop & drawing engine
